@@ -61,9 +61,12 @@ class TestGenerator(
 
     suspend fun generateInstrumentationTest(): GeneratedTest {
         val inspector = ProjectInspector(project)
-        val projectContext = inspector.getProjectContext()
+        val projectContext = inspector.getProjectContext(maxFiles = 15)
 
-        // Check for existing instrumentation test
+        // Determine package name from project structure
+        val basePackageName = projectContext.firstOrNull()?.packageName?.takeIf { it.isNotEmpty() }
+            ?: project.name.lowercase().replace("-", "").replace("_", "")
+
         val existingTestFile = findExistingInstrumentationTestFile()
         val existingTestCode = existingTestFile?.let { readFileContent(it) }
         val existingTestMethods = existingTestCode?.let { extractExistingTestMethods(it) } ?: emptyList()
@@ -86,10 +89,13 @@ class TestGenerator(
             response.testCode
         }
 
+        // Use package name from response or fallback to base package
+        val packageName = response.packageName.ifEmpty { basePackageName }
+
         return GeneratedTest(
             code = finalCode,
-            packageName = response.packageName,
-            className = response.testClassName,
+            packageName = packageName,
+            className = response.testClassName.ifEmpty { "${project.name.replace("-", "")}InstrumentedTest" },
             scope = TestScope.INSTRUMENTATION,
             targetSourceFile = null,
             isUpdate = existingTestFile != null,

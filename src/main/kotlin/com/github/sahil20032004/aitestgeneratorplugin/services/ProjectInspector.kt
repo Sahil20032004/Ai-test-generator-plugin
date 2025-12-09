@@ -7,6 +7,10 @@ import com.intellij.psi.*
 import com.intellij.psi.util.PsiTreeUtil
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtFile
+import com.intellij.psi.search.FileTypeIndex
+import com.intellij.psi.search.GlobalSearchScope
+import org.jetbrains.kotlin.idea.KotlinFileType
+import org.jetbrains.kotlin.psi.KtNamedFunction
 
 class ProjectInspector(private val project: Project) {
 
@@ -50,22 +54,104 @@ class ProjectInspector(private val project: Project) {
         )
     }
 
-    fun getProjectContext(maxFiles: Int = 10): List<FileContext> {
+    fun getProjectContext(maxFiles: Int = 20): List<FileContext> {
         val contexts = mutableListOf<FileContext>()
-        // Simplified: just get some representative files
-        // In production, you'd want smarter selection
+
+        try {
+            // Get all Kotlin files in the project (excluding test directories)
+            val scope = GlobalSearchScope.projectScope(project)
+            val kotlinFiles = FileTypeIndex.getFiles(KotlinFileType.INSTANCE, scope)
+
+            var fileCount = 0
+            for (virtualFile in kotlinFiles) {
+                if (fileCount >= maxFiles) break
+
+                // Skip test files
+                if (isTestFile(virtualFile)) continue
+
+                val psiFile = PsiManager.getInstance(project).findFile(virtualFile) as? KtFile
+                if (psiFile != null) {
+                    val packageName = psiFile.packageFqName.asString()
+                    val classes = PsiTreeUtil.findChildrenOfType(psiFile, KtClass::class.java)
+
+                    if (classes.isNotEmpty()) {
+                        // Get a summary of the file instead of full content
+                        val summary = buildFileSummary(psiFile, classes)
+
+                        contexts.add(
+                            FileContext(
+                                path = virtualFile.path.substringAfter("src/main/"),
+                                content = summary,
+                                packageName = packageName
+                            )
+                        )
+                        fileCount++
+                    }
+                }
+            }
+
+            // If no files found, add at least basic project info
+            if (contexts.isEmpty()) {
+                contexts.add(
+                    FileContext(
+                        path = "Project: ${project.name}",
+                        content = "Android project with Kotlin",
+                        packageName = ""
+                    )
+                )
+            }
+
+        } catch (e: Exception) {
+            // Fallback: provide basic project info
+            contexts.add(
+                FileContext(
+                    path = "Project: ${project.name}",
+                    content = "Android project - analysis failed: ${e.message}",
+                    packageName = ""
+                )
+            )
+        }
+
         return contexts
+    }
+
+    private fun buildFileSummary(psiFile: KtFile, classes: Collection<KtClass>): String {
+        return buildString {
+            appendLine("File: ${psiFile.name}")
+            appendLine("Package: ${psiFile.packageFqName}")
+            appendLine()
+
+            classes.forEach { ktClass ->
+                appendLine("Class: ${ktClass.name}")
+
+                // List public functions
+                val functions = ktClass.declarations.filterIsInstance<KtNamedFunction>()
+                if (functions.isNotEmpty()) {
+                    appendLine("Public methods:")
+                    functions.forEach { func ->
+                        val params = func.valueParameters.joinToString(", ") {
+                            "${it.name}: ${it.typeReference?.text ?: "?"}"
+                        }
+                        val returnType = func.typeReference?.text ?: "Unit"
+                        appendLine("  - ${func.name}($params): $returnType")
+                    }
+                }
+                appendLine()
+            }
+        }
+    }
+
+    private fun isTestFile(file: VirtualFile): Boolean {
+        val path = file.path
+        return path.contains("/test/") ||
+                path.contains("/androidTest/") ||
+                file.name.endsWith("Test.kt") ||
+                file.name.endsWith("Tests.kt")
     }
 
     private fun extractPublicMethods(ktClass: KtClass): List<String> {
         return ktClass.declarations
-            .filterIsInstance<org.jetbrains.kotlin.psi.KtNamedFunction>()
-            .filter { function ->
-                // A function is public if it has no visibility modifier or has 'public' modifier
-                !function.hasModifier(org.jetbrains.kotlin.lexer.KtTokens.PRIVATE_KEYWORD) &&
-                !function.hasModifier(org.jetbrains.kotlin.lexer.KtTokens.PROTECTED_KEYWORD) &&
-                !function.hasModifier(org.jetbrains.kotlin.lexer.KtTokens.INTERNAL_KEYWORD)
-            }
+            .filterIsInstance<KtNamedFunction>()
             .mapNotNull { it.name }
     }
 

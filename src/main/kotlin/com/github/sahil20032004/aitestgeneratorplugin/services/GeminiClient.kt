@@ -181,35 +181,51 @@ Return ONLY the Kotlin code without any markdown formatting or explanations.
             ""
         }
 
+        val projectInfo = if (request.projectContext.isNotEmpty()) {
+            buildString {
+                appendLine("\nProject Structure:")
+                request.projectContext.take(10).forEach { context ->
+                    appendLine("\nFile: ${context.path}")
+                    appendLine(context.content)
+                }
+            }
+        } else {
+            "\nNo project files analyzed - generate basic instrumentation test template"
+        }
+
         return """
 You are an expert Android developer tasked with generating instrumentation tests.
 
 Requirements:
+- Use $testFramework for test structure
+- Use AndroidX Test library (androidx.test) and Espresso for UI testing
+- Write tests in Kotlin
+- Use @RunWith(AndroidJUnit4::class)
+- Follow Android instrumentation test best practices
+- Test actual Android components and UI if they exist in the project
+- Use descriptive test method names following pattern: `should[ExpectedBehavior]When[Condition]`
+${if (request.existingTestCode != null) "- This test file already exists. Only generate NEW test methods that don't duplicate existing ones." else ""}
+$existingMethodsInfo
 
-Use $testFramework for test structure
-Use AndroidX Test library and Espresso
-Write tests in Kotlin
-Use AndroidJUnitRunner
-Follow Android instrumentation test best practices
-Test UI interactions and integration scenarios
-Use descriptive test method names ${if (request.existingTestCode != null) "- This test file already exists. Only generate NEW test methods that don't duplicate existing ones." else ""} $existingMethodsInfo
-Project Context:
-${request.projectContext.joinToString("\n") { "- ${it.path}" }}
+$projectInfo
 
 ${if (request.existingTestCode != null) {
-            "Existing Test File:\nkotlin\n${request.existingTestCode}\n\n"
+            "Existing Test File:\n```kotlin\n${request.existingTestCode}\n```\n"
         } else ""}
 
-Generate a complete instrumentation test class with:
+Based on the project structure above, generate instrumentation tests that:
+1. Test real components from the project (Activities, ViewModels, etc.)
+2. Include proper package declaration matching the project
+3. Import necessary AndroidX Test and Espresso libraries
+4. Use @RunWith(AndroidJUnit4::class) annotation
+5. Include ActivityScenario or ActivityScenarioRule if Activities are present
+6. Test UI interactions with Espresso if UI components exist
+7. Include basic smoke tests if no specific components are identified
 
-Proper package declaration
-All necessary imports (androidx.test, espresso, etc.)
-Test class with @RunWith(AndroidJUnit4::class) annotation
-ActivityScenarioRule or appropriate test rules
-Setup and teardown methods if needed
-Comprehensive UI test methods
+Generate a complete instrumentation test class.
+
 Return ONLY the Kotlin code without any markdown formatting or explanations.
-""".trimIndent()
+        """.trimIndent()
     }
 
     private fun buildRequestBody(prompt: String, settings: PluginSettings.State): String {
