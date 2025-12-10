@@ -65,10 +65,18 @@ class GeminiClient : AIService {
             ?: throw IllegalStateException("Gemini API key not configured. Please set it in Settings.")
 
         val settings = PluginSettings.getInstance().state
-        val prompt = buildPrompt(request, settings)
+
+        // Use BDD prompt for instrumentation tests if enabled
+        val prompt = if (request.scope == TestScope.INSTRUMENTATION && request.useBDD) {
+            buildCucumberBDDPrompt(request, settings)
+        } else {
+            buildPrompt(request, settings)
+        }
 
         val model = settings.geminiModel
         val url = "$GEMINI_API_URL/$model:generateContent?key=$apiKey"
+
+        logger.info("Calling Gemini API with model: $model, BDD: ${request.useBDD}")
 
         val requestBody = buildRequestBody(prompt, settings)
         val httpRequest = Request.Builder()
@@ -96,7 +104,12 @@ class GeminiClient : AIService {
                         401, 403 -> {
                             append("\n💡 Solution:\n")
                             append("Invalid API key. Please check your Gemini API key in Settings.\n")
-                            append("Get your API key from: https://makersuite.google.com/app/apikey\n")
+                            append("Get your API key from: https://aistudio.google.com/app/apikey\n")
+                        }
+                        404 -> {
+                            append("\n💡 Solution:\n")
+                            append("Model not found. The model '$model' is not available.\n")
+                            append("Please go to Settings → AI Test Generator and select a different model\n")
                         }
                         429 -> {
                             append("\n💡 Solution:\n")
@@ -106,7 +119,7 @@ class GeminiClient : AIService {
 
                     append("\n📋 For help, visit:\n")
                     append("• Gemini API Documentation: https://ai.google.dev/docs\n")
-                    append("• Get API Key: https://makersuite.google.com/app/apikey")
+                    append("• Get API Key: https://aistudio.google.com/app/apikey")
                 }
 
                 throw Exception(errorMessage)
@@ -115,7 +128,11 @@ class GeminiClient : AIService {
             val responseBody = response.body?.string()
                 ?: throw Exception("Empty response from Gemini")
 
-            parseResponse(responseBody, request)
+            if (request.scope == TestScope.INSTRUMENTATION && request.useBDD) {
+                parseBDDResponse(responseBody, request)
+            } else {
+                parseResponse(responseBody, request)
+            }
         }
     }
 
@@ -226,6 +243,116 @@ Generate a complete instrumentation test class.
 
 Return ONLY the Kotlin code without any markdown formatting or explanations.
         """.trimIndent()
+    }
+
+    private fun buildCucumberBDDPrompt(request: AIRequest, settings: PluginSettings.State): String {
+        val projectInfo = if (request.projectContext.isNotEmpty()) {
+            buildString {
+                appendLine("\nProject Structure:")
+                request.projectContext.take(10).forEach { context ->
+                    appendLine("\nFile: ${context.path}")
+                    appendLine(context.content)
+                }
+            }
+        } else {
+            "\nNo project files analyzed - generate basic BDD test template"
+        }
+
+        return """
+You are an expert Android BDD test developer tasked with generating Cucumber BDD tests.
+
+Requirements:
+- Generate TWO separate files:
+  1. A Gherkin .feature file with test scenarios
+  2. A Kotlin step definitions file
+- Use Cucumber framework for Android
+- Write in BDD Given-When-Then format
+- Follow Android instrumentation test best practices
+- Use AndroidX Test and Espresso where needed
+- Create realistic scenarios based on the project structure
+
+$projectInfo
+
+Generate BOTH files with the following structure:
+
+=== FEATURE FILE START ===
+[Generate complete .feature file here with proper Gherkin syntax]
+=== FEATURE FILE END ===
+
+=== STEP DEFINITIONS START ===
+[Generate complete Kotlin step definitions file here]
+=== STEP DEFINITIONS END ===
+
+Feature File Guidelines:
+- Use proper Gherkin syntax (Feature, Scenario, Given, When, Then)
+- Create realistic scenarios based on project components
+- Include multiple scenarios covering different use cases
+- Use descriptive scenario names
+- Add background steps if needed
+
+Step Definitions Guidelines:
+- Package: ${request.projectContext.firstOrNull()?.packageName ?: "com.example.test"}
+- Import necessary Cucumber annotations (@Given, @When, @Then)
+- Import AndroidX Test and Espresso
+- Implement step definitions with actual test logic
+- Use descriptive parameter names
+- Include assertions
+
+Return the content with clear separators as shown above.
+    """.trimIndent()
+    }
+
+    private fun parseBDDResponse(responseBody: String, request: AIRequest): AIResponse {
+        val jsonResponse = gson.fromJson(responseBody, JsonObject::class.java)
+
+        val candidates = jsonResponse.getAsJsonArray("candidates")
+        if (candidates == null || candidates.isEmpty) {
+            throw Exception("No response from Gemini")
+        }
+
+        val content = candidates[0].asJsonObject
+            .getAsJsonObject("content")
+            .getAsJsonArray("parts")[0].asJsonObject
+            .get("text")
+            .asString
+            .trim()
+
+        // Parse feature file and step definitions
+        val featureFilePattern = """=== FEATURE FILE START ===\s*(.*?)\s*=== FEATURE FILE END ===""".toRegex(RegexOption.DOT_MATCHES_ALL)
+        val stepDefsPattern = """=== STEP DEFINITIONS START ===\s*(.*?)\s*=== STEP DEFINITIONS END ===""".toRegex(RegexOption.DOT_MATCHES_ALL)
+
+        val featureFileContent = featureFilePattern.find(content)?.groupValues?.get(1)?.trim()
+            ?: throw Exception("Could not parse feature file from response")
+
+        val stepDefinitionsContent = stepDefsPattern.find(content)?.groupValues?.get(1)?.trim()
+            ?: throw Exception("Could not parse step definitions from response")
+
+        // Clean up any markdown formatting
+        val cleanedFeature = featureFileContent
+            .removePrefix("```gherkin")
+            .removePrefix("```")
+            .removeSuffix("```")
+            .trim()
+
+        val cleanedSteps = stepDefinitionsContent
+            .removePrefix("```kotlin")
+            .removePrefix("```")
+            .removeSuffix("```")
+            .trim()
+
+        val packageName = extractPackageName(cleanedSteps).ifEmpty {
+            request.projectContext.firstOrNull()?.packageName ?: "com.example.test"
+        }
+
+        return AIResponse(
+            testCode = cleanedSteps,
+            testClassName = extractClassName(cleanedSteps).ifEmpty { "StepDefinitions" },
+            packageName = packageName,
+            newTestMethods = emptyList(),
+            mergeMode = MergeMode.CREATE_NEW,
+            featureFileContent = cleanedFeature,
+            stepDefinitionsContent = cleanedSteps
+        )
     }
 
     private fun buildRequestBody(prompt: String, settings: PluginSettings.State): String {

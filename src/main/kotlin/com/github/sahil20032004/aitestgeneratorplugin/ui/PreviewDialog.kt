@@ -10,39 +10,57 @@ import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.Dimension
 import javax.swing.*
+import com.intellij.ui.components.JBTabbedPane
+import java.awt.Font
+
 
 class PreviewDialog(
     private val project: Project,
     private val generatedTest: TestGenerator.GeneratedTest
 ) : DialogWrapper(project) {
 
+    private val isBDD = generatedTest.featureFileContent != null && generatedTest.stepDefinitionsContent != null
+
     private val codeArea = JTextArea().apply {
         text = generatedTest.code
         isEditable = true
         lineWrap = false
         tabSize = 4
-        font = java.awt.Font("Monospaced", java.awt.Font.PLAIN, 12)
+        font = Font("Monospaced", Font.PLAIN, 12)
     }
+
+    private val featureArea = if (isBDD) {
+        JTextArea().apply {
+            text = generatedTest.featureFileContent
+            isEditable = true
+            lineWrap = false
+            tabSize = 4
+            font = Font("Monospaced", Font.PLAIN, 12)
+        }
+    } else null
 
     init {
         title = if (generatedTest.isUpdate) {
             "Update Test: ${generatedTest.className}"
+        } else if (isBDD) {
+            "Create BDD Test: ${generatedTest.className}"
         } else {
             "Create Test: ${generatedTest.className}"
         }
         init()
     }
 
-    public override fun createCenterPanel(): JComponent {
+    override fun createCenterPanel(): JComponent {
         val panel = JPanel(BorderLayout(10, 10))
         panel.border = JBUI.Borders.empty(10)
 
-        // Header info
         val infoPanel = JPanel()
         infoPanel.layout = BoxLayout(infoPanel, BoxLayout.Y_AXIS)
 
         val modeLabel = JBLabel(
-            if (generatedTest.isUpdate) {
+            if (isBDD) {
+                "Mode: Create BDD test (Feature file + Step definitions)"
+            } else if (generatedTest.isUpdate) {
                 "Mode: Update existing test (${generatedTest.newMethodsCount} new methods will be added)"
             } else {
                 "Mode: Create new test (${generatedTest.newMethodsCount} methods)"
@@ -60,39 +78,81 @@ class PreviewDialog(
         infoPanel.add(packageLabel)
         infoPanel.add(classLabel)
 
-        // Code preview
-        val scrollPane = JBScrollPane(codeArea)
-        scrollPane.preferredSize = Dimension(800, 600)
+        if (isBDD && featureArea != null) {
+            // Use tabbed pane for BDD
+            val tabbedPane = JBTabbedPane()
 
-        panel.add(infoPanel, BorderLayout.NORTH)
-        panel.add(scrollPane, BorderLayout.CENTER)
+            val featureScrollPane = JBScrollPane(featureArea)
+            featureScrollPane.preferredSize = Dimension(800, 600)
+            tabbedPane.addTab("Feature File (.feature)", featureScrollPane)
+
+            val stepDefsScrollPane = JBScrollPane(codeArea)
+            stepDefsScrollPane.preferredSize = Dimension(800, 600)
+            tabbedPane.addTab("Step Definitions (.kt)", stepDefsScrollPane)
+
+            panel.add(infoPanel, BorderLayout.NORTH)
+            panel.add(tabbedPane, BorderLayout.CENTER)
+        } else {
+            val scrollPane = JBScrollPane(codeArea)
+            scrollPane.preferredSize = Dimension(800, 600)
+
+            panel.add(infoPanel, BorderLayout.NORTH)
+            panel.add(scrollPane, BorderLayout.CENTER)
+        }
 
         return panel
     }
 
     override fun doOKAction() {
-        // Update the generated test with edited code
-        val editedTest = generatedTest.copy(code = codeArea.text)
-
-        // Insert or update the file
         val inserter = FileInserter(project)
-        val result = inserter.insertOrUpdateTest(editedTest)
 
-        if (result.success) {
-            JOptionPane.showMessageDialog(
-                contentPane,
-                result.message,
-                "Success",
-                JOptionPane.INFORMATION_MESSAGE
+        if (isBDD) {
+            // Insert BDD files
+            val editedTest = generatedTest.copy(
+                code = codeArea.text,
+                featureFileContent = featureArea?.text,
+                stepDefinitionsContent = codeArea.text
             )
-            super.doOKAction()
+
+            val result = inserter.insertBDDFiles(editedTest)
+
+            if (result.success) {
+                JOptionPane.showMessageDialog(
+                    contentPane,
+                    result.message,
+                    "Success",
+                    JOptionPane.INFORMATION_MESSAGE
+                )
+                super.doOKAction()
+            } else {
+                JOptionPane.showMessageDialog(
+                    contentPane,
+                    result.message,
+                    "Error",
+                    JOptionPane.ERROR_MESSAGE
+                )
+            }
         } else {
-            JOptionPane.showMessageDialog(
-                contentPane,
-                result.message,
-                "Error",
-                JOptionPane.ERROR_MESSAGE
-            )
+            // Regular test insertion
+            val editedTest = generatedTest.copy(code = codeArea.text)
+            val result = inserter.insertOrUpdateTest(editedTest)
+
+            if (result.success) {
+                JOptionPane.showMessageDialog(
+                    contentPane,
+                    result.message,
+                    "Success",
+                    JOptionPane.INFORMATION_MESSAGE
+                )
+                super.doOKAction()
+            } else {
+                JOptionPane.showMessageDialog(
+                    contentPane,
+                    result.message,
+                    "Error",
+                    JOptionPane.ERROR_MESSAGE
+                )
+            }
         }
     }
 

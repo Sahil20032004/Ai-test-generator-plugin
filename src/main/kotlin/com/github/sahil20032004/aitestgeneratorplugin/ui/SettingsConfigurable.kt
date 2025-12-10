@@ -10,7 +10,7 @@ import com.intellij.util.ui.FormBuilder
 import javax.swing.JComponent
 import javax.swing.JPanel
 import java.awt.CardLayout
-
+import com.intellij.ui.components.JBCheckBox
 
 class SettingsConfigurable : Configurable {
 
@@ -25,11 +25,11 @@ class SettingsConfigurable : Configurable {
         "gpt-3.5-turbo"
     ))
 
-    // Gemini fields - FREE TIER MODELS
+    // Gemini fields
     private val geminiApiKeyField = JBPasswordField()
     private val geminiModelField = ComboBox(arrayOf(
-        "gemini-2.5-flash",          // Gemini 2.0 Flash (Free, Experimental)
-        "gemini-2.5-flash-lite",              // Gemini 1.5 Flash (Free, Stable)
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite"
     ))
 
     // Common fields
@@ -37,6 +37,7 @@ class SettingsConfigurable : Configurable {
     private val temperatureField = JBTextField()
     private val testFrameworkField = ComboBox(arrayOf("JUNIT5", "JUNIT4"))
     private val mockingLibraryField = ComboBox(arrayOf("MOCKK", "MOCKITO"))
+    private val useBDDCheckbox = JBCheckBox("Use Cucumber BDD for Instrumentation Tests")
 
     private val providerSettingsPanel = JPanel(CardLayout())
     private val openAIPanel = JPanel()
@@ -67,6 +68,7 @@ class SettingsConfigurable : Configurable {
         temperatureField.text = settings.temperature.toString()
         testFrameworkField.selectedItem = settings.testFramework
         mockingLibraryField.selectedItem = settings.mockingLibrary
+        useBDDCheckbox.isSelected = settings.useBDDForInstrumentation
 
         openAIPanel.layout = javax.swing.BoxLayout(openAIPanel, javax.swing.BoxLayout.Y_AXIS)
         val openAIForm = FormBuilder.createFormBuilder()
@@ -107,6 +109,9 @@ class SettingsConfigurable : Configurable {
             .addLabeledComponent(JBLabel("Temperature (0.0-1.0):"), temperatureField, 1, false)
             .addLabeledComponent(JBLabel("Test Framework:"), testFrameworkField, 1, false)
             .addLabeledComponent(JBLabel("Mocking Library:"), mockingLibraryField, 1, false)
+            .addSeparator()
+            .addComponent(useBDDCheckbox)
+            .addComponent(JBLabel("<html><i>When enabled, generates Cucumber BDD tests with .feature files and step definitions</i></html>"))
             .addComponentFillVertically(JPanel(), 0)
             .panel
     }
@@ -122,7 +127,8 @@ class SettingsConfigurable : Configurable {
                 maxTokensField.text != settings.maxTokens.toString() ||
                 temperatureField.text != settings.temperature.toString() ||
                 testFrameworkField.selectedItem != settings.testFramework ||
-                mockingLibraryField.selectedItem != settings.mockingLibrary
+                mockingLibraryField.selectedItem != settings.mockingLibrary ||
+                useBDDCheckbox.isSelected != settings.useBDDForInstrumentation
     }
 
     override fun apply() {
@@ -139,6 +145,7 @@ class SettingsConfigurable : Configurable {
         settings.temperature = temperatureField.text.toDoubleOrNull()?.coerceIn(0.0, 1.0) ?: 0.3
         settings.testFramework = testFrameworkField.selectedItem as String
         settings.mockingLibrary = mockingLibraryField.selectedItem as String
+        settings.useBDDForInstrumentation = useBDDCheckbox.isSelected
     }
 
     override fun reset() {
@@ -165,6 +172,7 @@ class SettingsConfigurable : Configurable {
         temperatureField.text = settings.temperature.toString()
         testFrameworkField.selectedItem = settings.testFramework
         mockingLibraryField.selectedItem = settings.mockingLibrary
+        useBDDCheckbox.isSelected = settings.useBDDForInstrumentation
 
         val cardLayout = providerSettingsPanel.layout as CardLayout
         cardLayout.show(providerSettingsPanel, settings.aiProvider)
@@ -177,7 +185,7 @@ class SettingsConfigurable : Configurable {
     private fun isValidGeminiModel(model: String): Boolean {
         return model in listOf(
             "gemini-2.5-flash",
-            "gemini-2.5-flash-lite",
+            "gemini-2.5-flash-lite"
         )
     }
 }

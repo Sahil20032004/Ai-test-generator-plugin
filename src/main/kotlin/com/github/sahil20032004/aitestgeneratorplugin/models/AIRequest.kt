@@ -8,7 +8,9 @@ data class AIRequest(
     val projectContext: List<FileContext>,
     val language: String = "KOTLIN",
     val existingTestCode: String? = null,
-    val existingTestMethods: List<String> = emptyList()
+    val existingTestMethods: List<String> = emptyList(),
+    val useBDD: Boolean = false,  // New field
+    val bddTestType: BDDTestType = BDDTestType.BOTH  // New field
 )
 
 data class FileContext(

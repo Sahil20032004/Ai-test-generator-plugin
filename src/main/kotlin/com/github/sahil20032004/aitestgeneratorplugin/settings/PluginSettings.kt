@@ -6,7 +6,6 @@ import com.intellij.ide.passwordSafe.PasswordSafe
 import com.intellij.openapi.components.*
 import com.github.sahil20032004.aitestgeneratorplugin.models.AIProvider
 
-
 @Service
 @State(
     name = "AITestGeneratorSettings",
@@ -19,11 +18,12 @@ class PluginSettings : PersistentStateComponent<PluginSettings.State> {
     data class State(
         var aiProvider: String = AIProvider.GEMINI.name,
         var openAIModel: String = "gpt-4o",
-        var geminiModel: String = "gemini-2.5-flash",  // Free tier model
-        var maxTokens: Int = 8000,  // Increased for flash models
+        var geminiModel: String = "gemini-2.5-flash",
+        var maxTokens: Int = 8000,
         var temperature: Double = 0.3,
         var testFramework: String = "JUNIT5",
-        var mockingLibrary: String = "MOCKK"
+        var mockingLibrary: String = "MOCKK",
+        var useBDDForInstrumentation: Boolean = true  // New field
     )
 
     override fun getState(): State = myState

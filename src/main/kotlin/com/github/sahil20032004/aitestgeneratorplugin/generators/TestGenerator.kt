@@ -6,6 +6,7 @@ import com.github.sahil20032004.aitestgeneratorplugin.models.MergeMode
 import com.github.sahil20032004.aitestgeneratorplugin.models.TestScope
 import com.github.sahil20032004.aitestgeneratorplugin.services.AIService
 import com.github.sahil20032004.aitestgeneratorplugin.services.ProjectInspector
+import com.github.sahil20032004.aitestgeneratorplugin.settings.PluginSettings
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiManager
@@ -62,8 +63,8 @@ class TestGenerator(
     suspend fun generateInstrumentationTest(): GeneratedTest {
         val inspector = ProjectInspector(project)
         val projectContext = inspector.getProjectContext(maxFiles = 15)
+        val settings = PluginSettings.getInstance().state
 
-        // Determine package name from project structure
         val basePackageName = projectContext.firstOrNull()?.packageName?.takeIf { it.isNotEmpty() }
             ?: project.name.lowercase().replace("-", "").replace("_", "")
 
@@ -78,7 +79,8 @@ class TestGenerator(
             sourceCode = null,
             projectContext = projectContext,
             existingTestCode = existingTestCode,
-            existingTestMethods = existingTestMethods
+            existingTestMethods = existingTestMethods,
+            useBDD = settings.useBDDForInstrumentation
         )
 
         val response = aiService.generateTests(request)
@@ -89,7 +91,6 @@ class TestGenerator(
             response.testCode
         }
 
-        // Use package name from response or fallback to base package
         val packageName = response.packageName.ifEmpty { basePackageName }
 
         return GeneratedTest(
@@ -100,7 +101,9 @@ class TestGenerator(
             targetSourceFile = null,
             isUpdate = existingTestFile != null,
             existingFile = existingTestFile,
-            newMethodsCount = response.newTestMethods.size
+            newMethodsCount = response.newTestMethods.size,
+            featureFileContent = response.featureFileContent,
+            stepDefinitionsContent = response.stepDefinitionsContent
         )
     }
 
@@ -189,6 +192,8 @@ class TestGenerator(
         val targetSourceFile: VirtualFile?,
         val isUpdate: Boolean,
         val existingFile: VirtualFile?,
-        val newMethodsCount: Int
+        val newMethodsCount: Int,
+        val featureFileContent: String? = null,
+        val stepDefinitionsContent: String? = null
     )
 }

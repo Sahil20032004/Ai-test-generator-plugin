@@ -50,6 +50,100 @@ class FileInserter(private val project: Project) {
         }
     }
 
+    fun insertBDDFiles(generatedTest: TestGenerator.GeneratedTest): BDDInsertionResult {
+        if (generatedTest.featureFileContent == null || generatedTest.stepDefinitionsContent == null) {
+            return BDDInsertionResult(
+                success = false,
+                message = "No BDD content to insert",
+                featureFile = null,
+                stepDefinitionsFile = null
+            )
+        }
+
+        return WriteCommandAction.runWriteCommandAction<BDDInsertionResult>(project) {
+            try {
+                val baseDir = project.baseDir
+                    ?: return@runWriteCommandAction BDDInsertionResult(
+                        false,
+                        "Could not find project base directory",
+                        null,
+                        null
+                    )
+
+                // Create feature file in src/androidTest/assets/features
+                val featureDir = findOrCreateSourceRoot(baseDir, "app/src/androidTest/assets/features")
+                    ?: return@runWriteCommandAction BDDInsertionResult(
+                        false,
+                        "Could not create features directory",
+                        null,
+                        null
+                    )
+
+                val featureFileName = "${generatedTest.className.removeSuffix("StepDefinitions")}.feature"
+                val featureFile = ApplicationManager.getApplication().runWriteAction<VirtualFile> {
+                    featureDir.findChild(featureFileName)?.apply {
+                        setBinaryContent(generatedTest.featureFileContent.toByteArray())
+                    } ?: featureDir.createChildData(this, featureFileName).apply {
+                        setBinaryContent(generatedTest.featureFileContent.toByteArray())
+                    }
+                }
+
+                // Create step definitions in src/androidTest/java/package
+                val stepDefsDir = findOrCreateSourceRoot(baseDir, "app/src/androidTest/java")
+                    ?: return@runWriteCommandAction BDDInsertionResult(
+                        false,
+                        "Could not create androidTest directory",
+                        featureFile,
+                        null
+                    )
+
+                val packagePath = generatedTest.packageName.replace('.', '/')
+                val targetDir = createDirectories(stepDefsDir, packagePath)
+                    ?: return@runWriteCommandAction BDDInsertionResult(
+                        false,
+                        "Could not create package directory",
+                        featureFile,
+                        null
+                    )
+
+                val stepDefsFileName = "${generatedTest.className}.kt"
+                val stepDefsFile = ApplicationManager.getApplication().runWriteAction<VirtualFile> {
+                    targetDir.findChild(stepDefsFileName)?.apply {
+                        setBinaryContent(generatedTest.stepDefinitionsContent.toByteArray())
+                    } ?: targetDir.createChildData(this, stepDefsFileName).apply {
+                        setBinaryContent(generatedTest.stepDefinitionsContent.toByteArray())
+                    }
+                }
+
+                featureDir.refresh(false, true)
+                stepDefsDir.refresh(false, true)
+
+                BDDInsertionResult(
+                    success = true,
+                    message = "Successfully created:\n" +
+                            "Feature file: app/src/androidTest/assets/features/$featureFileName\n" +
+                            "Step definitions: app/src/androidTest/java/$packagePath/$stepDefsFileName",
+                    featureFile = featureFile,
+                    stepDefinitionsFile = stepDefsFile
+                )
+            } catch (e: Exception) {
+                BDDInsertionResult(
+                    false,
+                    "Error creating BDD files: ${e.message}",
+                    null,
+                    null
+                )
+            }
+        }
+    }
+
+    data class BDDInsertionResult(
+        val success: Boolean,
+        val message: String,
+        val featureFile: VirtualFile?,
+        val stepDefinitionsFile: VirtualFile?
+    )
+
     private fun createNewTestFile(generatedTest: TestGenerator.GeneratedTest): InsertionResult {
         return WriteCommandAction.runWriteCommandAction<InsertionResult>(project) {
             try {
