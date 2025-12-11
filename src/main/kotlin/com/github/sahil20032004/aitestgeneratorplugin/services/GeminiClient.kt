@@ -258,13 +258,16 @@ Return ONLY the Kotlin code without any markdown formatting or explanations.
             "\nNo project files analyzed - generate basic BDD test template"
         }
 
+        val basePackage = request.projectContext.firstOrNull()?.packageName ?: "com.example.test"
+
         return """
 You are an expert Android BDD test developer tasked with generating Cucumber BDD tests.
 
 Requirements:
-- Generate TWO separate files:
+- Generate THREE separate files:
   1. A Gherkin .feature file with test scenarios
   2. A Kotlin step definitions file
+  3. A Kotlin test runner class (CucumberTestRunner)
 - Use Cucumber framework for Android
 - Write in BDD Given-When-Then format
 - Follow Android instrumentation test best practices
@@ -273,7 +276,7 @@ Requirements:
 
 $projectInfo
 
-Generate BOTH files with the following structure:
+Generate ALL THREE files with the following structure:
 
 === FEATURE FILE START ===
 [Generate complete .feature file here with proper Gherkin syntax]
@@ -283,6 +286,10 @@ Generate BOTH files with the following structure:
 [Generate complete Kotlin step definitions file here]
 === STEP DEFINITIONS END ===
 
+=== TEST RUNNER START ===
+[Generate complete Kotlin test runner class here]
+=== TEST RUNNER END ===
+
 Feature File Guidelines:
 - Use proper Gherkin syntax (Feature, Scenario, Given, When, Then)
 - Create realistic scenarios based on project components
@@ -291,15 +298,40 @@ Feature File Guidelines:
 - Add background steps if needed
 
 Step Definitions Guidelines:
-- Package: ${request.projectContext.firstOrNull()?.packageName ?: "com.example.test"}
+- Package: $basePackage
 - Import necessary Cucumber annotations (@Given, @When, @Then)
 - Import AndroidX Test and Espresso
 - Implement step definitions with actual test logic
 - Use descriptive parameter names
 - Include assertions
+- Keep state in class properties
 
+Test Runner Guidelines:
+- Package: $basePackage
+- Class name: CucumberTestRunner
+- Use @RunWith(CucumberAndroidJUnitRunner::class) or extend CucumberAndroidJUnitRunner
+- Use @CucumberOptions annotation with:
+  - features: Point to "features" directory
+  - glue: Point to step definitions package
+- No test methods needed (Cucumber discovers scenarios)
+- Should be runnable as an instrumentation test
+
+Example Test Runner Structure:
+```kotlin
+package $basePackage
+
+import io.cucumber.android.runner.CucumberAndroidJUnitRunner
+import io.cucumber.junit.CucumberOptions
+import org.junit.runner.RunWith
+
+@RunWith(CucumberAndroidJUnitRunner::class)
+@CucumberOptions(
+    features = ["features"],
+    glue = ["$basePackage"]
+)
+class CucumberTestRunner
 Return the content with clear separators as shown above.
-    """.trimIndent()
+""".trimIndent()
     }
 
     private fun parseBDDResponse(responseBody: String, request: AIRequest): AIResponse {
@@ -317,15 +349,19 @@ Return the content with clear separators as shown above.
             .asString
             .trim()
 
-        // Parse feature file and step definitions
+        // Parse feature file, step definitions, and test runner
         val featureFilePattern = """=== FEATURE FILE START ===\s*(.*?)\s*=== FEATURE FILE END ===""".toRegex(RegexOption.DOT_MATCHES_ALL)
         val stepDefsPattern = """=== STEP DEFINITIONS START ===\s*(.*?)\s*=== STEP DEFINITIONS END ===""".toRegex(RegexOption.DOT_MATCHES_ALL)
+        val testRunnerPattern = """=== TEST RUNNER START ===\s*(.*?)\s*=== TEST RUNNER END ===""".toRegex(RegexOption.DOT_MATCHES_ALL)
 
         val featureFileContent = featureFilePattern.find(content)?.groupValues?.get(1)?.trim()
             ?: throw Exception("Could not parse feature file from response")
 
         val stepDefinitionsContent = stepDefsPattern.find(content)?.groupValues?.get(1)?.trim()
             ?: throw Exception("Could not parse step definitions from response")
+
+        val testRunnerContent = testRunnerPattern.find(content)?.groupValues?.get(1)?.trim()
+            ?: throw Exception("Could not parse test runner from response")
 
         // Clean up any markdown formatting
         val cleanedFeature = featureFileContent
@@ -335,6 +371,12 @@ Return the content with clear separators as shown above.
             .trim()
 
         val cleanedSteps = stepDefinitionsContent
+            .removePrefix("```kotlin")
+            .removePrefix("```")
+            .removeSuffix("```")
+            .trim()
+
+        val cleanedRunner = testRunnerContent
             .removePrefix("```kotlin")
             .removePrefix("```")
             .removeSuffix("```")
@@ -351,7 +393,8 @@ Return the content with clear separators as shown above.
             newTestMethods = emptyList(),
             mergeMode = MergeMode.CREATE_NEW,
             featureFileContent = cleanedFeature,
-            stepDefinitionsContent = cleanedSteps
+            stepDefinitionsContent = cleanedSteps,
+            testRunnerContent = cleanedRunner
         )
     }
 

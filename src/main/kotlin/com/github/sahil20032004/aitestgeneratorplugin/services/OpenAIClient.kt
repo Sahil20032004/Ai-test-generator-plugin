@@ -73,6 +73,7 @@ class OpenAIClient : AIService {
         }
     }
 
+    //TODO add generateTests function from GeminiClient and refactor common code
 
     override suspend fun generateTests(request: AIRequest): AIResponse =
         withContext(Dispatchers.IO) {
@@ -300,36 +301,204 @@ class OpenAIClient : AIService {
             ""
         }
 
+        val projectInfo = if (request.projectContext.isNotEmpty()) {
+            buildString {
+                appendLine("\nProject Structure:")
+                request.projectContext.take(10).forEach { context ->
+                    appendLine("\nFile: ${context.path}")
+                    appendLine(context.content)
+                }
+            }
+        } else {
+            "\nNo project files analyzed - generate basic instrumentation test template"
+        }
+
         return """
-            You are an expert Android developer tasked with generating instrumentation tests.
-            Requirements:
-            - Use $testFramework for test structure
-            - Use AndroidX Test library and Espresso
-            - Write tests in Kotlin
-            - Use AndroidJUnitRunner
-            - Follow Android instrumentation test best practices
-            - Test UI interactions and integration scenarios
-            - Use descriptive test method names
-            ${if (request.existingTestCode != null) "- This test file already exists. Only generate NEW test methods that don't duplicate existing ones." else ""}
-            $existingMethodsInfo
-            
-            Project Context:
-            ${request.projectContext.joinToString("\n") { "- ${it.path}" }}
-            
-            ${if (request.existingTestCode != null) {
-                "Existing Test File:\n```kotlin\n${request.existingTestCode}\n```\n"
-            } else ""}
-            
-            Generate a complete instrumentation test class with:
-            - Proper package declaration
-            - All necessary imports (androidx.test, espresso, etc.)
-            - Test class with @RunWith(AndroidJUnit4::class) annotation
-            - ActivityScenarioRule or appropriate test rules
-            - Setup and teardown methods if needed
-            - Comprehensive UI test methods
-            
-            Return ONLY the Kotlin code without any markdown formatting or explanations.
+You are an expert Android developer tasked with generating instrumentation tests.
+
+Requirements:
+- Use $testFramework for test structure
+- Use AndroidX Test library (androidx.test) and Espresso for UI testing
+- Write tests in Kotlin
+- Use @RunWith(AndroidJUnit4::class)
+- Follow Android instrumentation test best practices
+- Test actual Android components and UI if they exist in the project
+- Use descriptive test method names following pattern: `should[ExpectedBehavior]When[Condition]`
+${if (request.existingTestCode != null) "- This test file already exists. Only generate NEW test methods that don't duplicate existing ones." else ""}
+$existingMethodsInfo
+
+$projectInfo
+
+${if (request.existingTestCode != null) {
+            "Existing Test File:\n```kotlin\n${request.existingTestCode}\n```\n"
+        } else ""}
+
+Based on the project structure above, generate instrumentation tests that:
+1. Test real components from the project (Activities, ViewModels, etc.)
+2. Include proper package declaration matching the project
+3. Import necessary AndroidX Test and Espresso libraries
+4. Use @RunWith(AndroidJUnit4::class) annotation
+5. Include ActivityScenario or ActivityScenarioRule if Activities are present
+6. Test UI interactions with Espresso if UI components exist
+7. Include basic smoke tests if no specific components are identified
+
+Generate a complete instrumentation test class.
+
+Return ONLY the Kotlin code without any markdown formatting or explanations.
         """.trimIndent()
+    }
+
+    private fun buildCucumberBDDPrompt(request: AIRequest, settings: PluginSettings.State): String {
+        val projectInfo = if (request.projectContext.isNotEmpty()) {
+            buildString {
+                appendLine("\nProject Structure:")
+                request.projectContext.take(10).forEach { context ->
+                    appendLine("\nFile: ${context.path}")
+                    appendLine(context.content)
+                }
+            }
+        } else {
+            "\nNo project files analyzed - generate basic BDD test template"
+        }
+
+        val basePackage = request.projectContext.firstOrNull()?.packageName ?: "com.example.test"
+
+        return """
+You are an expert Android BDD test developer tasked with generating Cucumber BDD tests.
+
+Requirements:
+- Generate THREE separate files:
+  1. A Gherkin .feature file with test scenarios
+  2. A Kotlin step definitions file
+  3. A Kotlin test runner class (CucumberTestRunner)
+- Use Cucumber framework for Android
+- Write in BDD Given-When-Then format
+- Follow Android instrumentation test best practices
+- Use AndroidX Test and Espresso where needed
+- Create realistic scenarios based on the project structure
+
+$projectInfo
+
+Generate ALL THREE files with the following structure:
+
+=== FEATURE FILE START ===
+[Generate complete .feature file here with proper Gherkin syntax]
+=== FEATURE FILE END ===
+
+=== STEP DEFINITIONS START ===
+[Generate complete Kotlin step definitions file here]
+=== STEP DEFINITIONS END ===
+
+=== TEST RUNNER START ===
+[Generate complete Kotlin test runner class here]
+=== TEST RUNNER END ===
+
+Feature File Guidelines:
+- Use proper Gherkin syntax (Feature, Scenario, Given, When, Then)
+- Create realistic scenarios based on project components
+- Include multiple scenarios covering different use cases
+- Use descriptive scenario names
+- Add background steps if needed
+
+Step Definitions Guidelines:
+- Package: $basePackage
+- Import necessary Cucumber annotations (@Given, @When, @Then)
+- Import AndroidX Test and Espresso
+- Implement step definitions with actual test logic
+- Use descriptive parameter names
+- Include assertions
+- Keep state in class properties
+
+Test Runner Guidelines:
+- Package: $basePackage
+- Class name: CucumberTestRunner
+- Use @RunWith(CucumberAndroidJUnitRunner::class) or extend CucumberAndroidJUnitRunner
+- Use @CucumberOptions annotation with:
+  - features: Point to "features" directory
+  - glue: Point to step definitions package
+- No test methods needed (Cucumber discovers scenarios)
+- Should be runnable as an instrumentation test
+
+Example Test Runner Structure:
+```kotlin
+package $basePackage
+
+import io.cucumber.android.runner.CucumberAndroidJUnitRunner
+import io.cucumber.junit.CucumberOptions
+import org.junit.runner.RunWith
+
+@RunWith(CucumberAndroidJUnitRunner::class)
+@CucumberOptions(
+    features = ["features"],
+    glue = ["$basePackage"]
+)
+class CucumberTestRunner
+Return the content with clear separators as shown above.
+""".trimIndent()
+    }
+
+    private fun parseBDDResponse(responseBody: String, request: AIRequest): AIResponse {
+        val jsonResponse = gson.fromJson(responseBody, JsonObject::class.java)
+
+        val candidates = jsonResponse.getAsJsonArray("candidates")
+        if (candidates == null || candidates.isEmpty) {
+            throw Exception("No response from Gemini")
+        }
+
+        val content = candidates[0].asJsonObject
+            .getAsJsonObject("content")
+            .getAsJsonArray("parts")[0].asJsonObject
+            .get("text")
+            .asString
+            .trim()
+
+        // Parse feature file, step definitions, and test runner
+        val featureFilePattern = """=== FEATURE FILE START ===\s*(.*?)\s*=== FEATURE FILE END ===""".toRegex(RegexOption.DOT_MATCHES_ALL)
+        val stepDefsPattern = """=== STEP DEFINITIONS START ===\s*(.*?)\s*=== STEP DEFINITIONS END ===""".toRegex(RegexOption.DOT_MATCHES_ALL)
+        val testRunnerPattern = """=== TEST RUNNER START ===\s*(.*?)\s*=== TEST RUNNER END ===""".toRegex(RegexOption.DOT_MATCHES_ALL)
+
+        val featureFileContent = featureFilePattern.find(content)?.groupValues?.get(1)?.trim()
+            ?: throw Exception("Could not parse feature file from response")
+
+        val stepDefinitionsContent = stepDefsPattern.find(content)?.groupValues?.get(1)?.trim()
+            ?: throw Exception("Could not parse step definitions from response")
+
+        val testRunnerContent = testRunnerPattern.find(content)?.groupValues?.get(1)?.trim()
+            ?: throw Exception("Could not parse test runner from response")
+
+        // Clean up any markdown formatting
+        val cleanedFeature = featureFileContent
+            .removePrefix("```gherkin")
+            .removePrefix("```")
+            .removeSuffix("```")
+            .trim()
+
+        val cleanedSteps = stepDefinitionsContent
+            .removePrefix("```kotlin")
+            .removePrefix("```")
+            .removeSuffix("```")
+            .trim()
+
+        val cleanedRunner = testRunnerContent
+            .removePrefix("```kotlin")
+            .removePrefix("```")
+            .removeSuffix("```")
+            .trim()
+
+        val packageName = extractPackageName(cleanedSteps).ifEmpty {
+            request.projectContext.firstOrNull()?.packageName ?: "com.example.test"
+        }
+
+        return AIResponse(
+            testCode = cleanedSteps,
+            testClassName = extractClassName(cleanedSteps).ifEmpty { "StepDefinitions" },
+            packageName = packageName,
+            newTestMethods = emptyList(),
+            mergeMode = MergeMode.CREATE_NEW,
+            featureFileContent = cleanedFeature,
+            stepDefinitionsContent = cleanedSteps,
+            testRunnerContent = cleanedRunner
+        )
     }
 
     private fun buildRequestBody(prompt: String, settings: PluginSettings.State): String {

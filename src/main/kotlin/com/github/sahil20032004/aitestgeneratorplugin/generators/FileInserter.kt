@@ -51,12 +51,15 @@ class FileInserter(private val project: Project) {
     }
 
     fun insertBDDFiles(generatedTest: TestGenerator.GeneratedTest): BDDInsertionResult {
-        if (generatedTest.featureFileContent == null || generatedTest.stepDefinitionsContent == null) {
+        if (generatedTest.featureFileContent == null ||
+            generatedTest.stepDefinitionsContent == null ||
+            generatedTest.testRunnerContent == null) {
             return BDDInsertionResult(
                 success = false,
                 message = "No BDD content to insert",
                 featureFile = null,
-                stepDefinitionsFile = null
+                stepDefinitionsFile = null,
+                testRunnerFile = null
             )
         }
 
@@ -67,14 +70,16 @@ class FileInserter(private val project: Project) {
                         false,
                         "Could not find project base directory",
                         null,
+                        null,
                         null
                     )
 
-                // Create feature file in src/androidTest/assets/features
+                // 1. Create feature file in app/src/androidTest/assets/features
                 val featureDir = findOrCreateSourceRoot(baseDir, "app/src/androidTest/assets/features")
                     ?: return@runWriteCommandAction BDDInsertionResult(
                         false,
                         "Could not create features directory",
+                        null,
                         null,
                         null
                     )
@@ -88,12 +93,13 @@ class FileInserter(private val project: Project) {
                     }
                 }
 
-                // Create step definitions in src/androidTest/java/package
+                // 2. Create step definitions in app/src/androidTest/java/package
                 val stepDefsDir = findOrCreateSourceRoot(baseDir, "app/src/androidTest/java")
                     ?: return@runWriteCommandAction BDDInsertionResult(
                         false,
                         "Could not create androidTest directory",
                         featureFile,
+                        null,
                         null
                     )
 
@@ -103,6 +109,7 @@ class FileInserter(private val project: Project) {
                         false,
                         "Could not create package directory",
                         featureFile,
+                        null,
                         null
                     )
 
@@ -115,21 +122,35 @@ class FileInserter(private val project: Project) {
                     }
                 }
 
+                // 3. Create test runner in app/src/androidTest/java/package
+                val testRunnerFileName = "CucumberTestRunner.kt"
+                val testRunnerFile = ApplicationManager.getApplication().runWriteAction<VirtualFile> {
+                    targetDir.findChild(testRunnerFileName)?.apply {
+                        setBinaryContent(generatedTest.testRunnerContent.toByteArray())
+                    } ?: targetDir.createChildData(this, testRunnerFileName).apply {
+                        setBinaryContent(generatedTest.testRunnerContent.toByteArray())
+                    }
+                }
+
                 featureDir.refresh(false, true)
                 stepDefsDir.refresh(false, true)
 
                 BDDInsertionResult(
                     success = true,
-                    message = "Successfully created:\n" +
-                            "Feature file: app/src/androidTest/assets/features/$featureFileName\n" +
-                            "Step definitions: app/src/androidTest/java/$packagePath/$stepDefsFileName",
+                    message = "Successfully created BDD test files:\n\n" +
+                            "1. Feature file: app/src/androidTest/assets/features/$featureFileName\n" +
+                            "2. Step definitions: app/src/androidTest/java/$$packagePath/$$stepDefsFileName\n" +
+                            "3. Test runner: app/src/androidTest/java/$$packagePath/$$testRunnerFileName\n\n" +
+                            "To run: Right-click on CucumberTestRunner and select 'Run'",
                     featureFile = featureFile,
-                    stepDefinitionsFile = stepDefsFile
+                    stepDefinitionsFile = stepDefsFile,
+                    testRunnerFile = testRunnerFile
                 )
             } catch (e: Exception) {
                 BDDInsertionResult(
                     false,
                     "Error creating BDD files: ${e.message}",
+                    null,
                     null,
                     null
                 )
@@ -141,7 +162,8 @@ class FileInserter(private val project: Project) {
         val success: Boolean,
         val message: String,
         val featureFile: VirtualFile?,
-        val stepDefinitionsFile: VirtualFile?
+        val stepDefinitionsFile: VirtualFile?,
+        val testRunnerFile: VirtualFile?  // NEW
     )
 
     private fun createNewTestFile(generatedTest: TestGenerator.GeneratedTest): InsertionResult {

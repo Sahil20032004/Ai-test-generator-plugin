@@ -103,7 +103,8 @@ class TestGenerator(
             existingFile = existingTestFile,
             newMethodsCount = response.newTestMethods.size,
             featureFileContent = response.featureFileContent,
-            stepDefinitionsContent = response.stepDefinitionsContent
+            stepDefinitionsContent = response.stepDefinitionsContent,
+            testRunnerContent = response.testRunnerContent
         )
     }
 
@@ -194,6 +195,7 @@ class TestGenerator(
         val existingFile: VirtualFile?,
         val newMethodsCount: Int,
         val featureFileContent: String? = null,
-        val stepDefinitionsContent: String? = null
+        val stepDefinitionsContent: String? = null,
+        val testRunnerContent: String? = null  // NEW
     )
 }

@@ -13,13 +13,14 @@ import javax.swing.*
 import com.intellij.ui.components.JBTabbedPane
 import java.awt.Font
 
-
 class PreviewDialog(
     private val project: Project,
     private val generatedTest: TestGenerator.GeneratedTest
 ) : DialogWrapper(project) {
 
-    private val isBDD = generatedTest.featureFileContent != null && generatedTest.stepDefinitionsContent != null
+    private val isBDD = generatedTest.featureFileContent != null &&
+            generatedTest.stepDefinitionsContent != null &&
+            generatedTest.testRunnerContent != null
 
     private val codeArea = JTextArea().apply {
         text = generatedTest.code
@@ -32,6 +33,16 @@ class PreviewDialog(
     private val featureArea = if (isBDD) {
         JTextArea().apply {
             text = generatedTest.featureFileContent
+            isEditable = true
+            lineWrap = false
+            tabSize = 4
+            font = Font("Monospaced", Font.PLAIN, 12)
+        }
+    } else null
+
+    private val runnerArea = if (isBDD) {
+        JTextArea().apply {
+            text = generatedTest.testRunnerContent
             isEditable = true
             lineWrap = false
             tabSize = 4
@@ -59,7 +70,7 @@ class PreviewDialog(
 
         val modeLabel = JBLabel(
             if (isBDD) {
-                "Mode: Create BDD test (Feature file + Step definitions)"
+                "Mode: Create BDD test (Feature + Steps + Runner)"
             } else if (generatedTest.isUpdate) {
                 "Mode: Update existing test (${generatedTest.newMethodsCount} new methods will be added)"
             } else {
@@ -78,17 +89,21 @@ class PreviewDialog(
         infoPanel.add(packageLabel)
         infoPanel.add(classLabel)
 
-        if (isBDD && featureArea != null) {
-            // Use tabbed pane for BDD
+        if (isBDD && featureArea != null && runnerArea != null) {
+            // Use tabbed pane for BDD with 3 tabs
             val tabbedPane = JBTabbedPane()
 
             val featureScrollPane = JBScrollPane(featureArea)
             featureScrollPane.preferredSize = Dimension(800, 600)
-            tabbedPane.addTab("Feature File (.feature)", featureScrollPane)
+            tabbedPane.addTab("1. Feature File (.feature)", featureScrollPane)
 
             val stepDefsScrollPane = JBScrollPane(codeArea)
             stepDefsScrollPane.preferredSize = Dimension(800, 600)
-            tabbedPane.addTab("Step Definitions (.kt)", stepDefsScrollPane)
+            tabbedPane.addTab("2. Step Definitions (.kt)", stepDefsScrollPane)
+
+            val runnerScrollPane = JBScrollPane(runnerArea)
+            runnerScrollPane.preferredSize = Dimension(800, 600)
+            tabbedPane.addTab("3. Test Runner (.kt)", runnerScrollPane)
 
             panel.add(infoPanel, BorderLayout.NORTH)
             panel.add(tabbedPane, BorderLayout.CENTER)
@@ -107,11 +122,12 @@ class PreviewDialog(
         val inserter = FileInserter(project)
 
         if (isBDD) {
-            // Insert BDD files
+            // Insert BDD files (feature, steps, runner)
             val editedTest = generatedTest.copy(
                 code = codeArea.text,
                 featureFileContent = featureArea?.text,
-                stepDefinitionsContent = codeArea.text
+                stepDefinitionsContent = codeArea.text,
+                testRunnerContent = runnerArea?.text
             )
 
             val result = inserter.insertBDDFiles(editedTest)

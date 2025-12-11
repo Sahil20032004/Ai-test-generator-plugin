@@ -6,8 +6,9 @@ data class AIResponse(
     val packageName: String,
     val newTestMethods: List<String>,
     val mergeMode: MergeMode,
-    val featureFileContent: String? = null,  // New field for .feature file
-    val stepDefinitionsContent: String? = null  // New field for step definitions
+    val featureFileContent: String? = null,
+    val stepDefinitionsContent: String? = null,
+    val testRunnerContent: String? = null  // NEW: Test runner class
 )
 
 enum class MergeMode {
