@@ -34,7 +34,7 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.opentest4j)
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
 
     // HTTP client for API calls (OpenAI & Gemini)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
