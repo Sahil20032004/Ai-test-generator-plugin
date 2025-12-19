@@ -120,9 +120,29 @@ class ProjectInspector(private val project: Project) {
                 val packageName = psiFile.packageFqName.asString()
                 val classes = PsiTreeUtil.findChildrenOfType(psiFile, KtClass::class.java)
 
-                if (classes.isNotEmpty()) {
-                    val componentType = detectAndroidComponentType(classes.first())
-                    val summary = buildKotlinFileSummary(psiFile, classes, componentType)
+                // Check if file has Composable functions (even if no classes)
+                val hasCompose = detectComposeInFile(psiFile)
+                val composableFunctions = if (hasCompose) hasComposableFunctions(psiFile) else emptyList()
+
+                if (classes.isNotEmpty() || composableFunctions.isNotEmpty()) {
+                    val componentType = when {
+                        composableFunctions.isNotEmpty() -> {
+                            // Determine if it's a screen or just a composable
+                            val hasScreenSuffix = composableFunctions.any {
+                                it.name?.endsWith("Screen") == true
+                            }
+                            if (hasScreenSuffix) AndroidComponentType.COMPOSE_SCREEN
+                            else AndroidComponentType.COMPOSABLE
+                        }
+                        classes.isNotEmpty() -> detectAndroidComponentType(classes.first())
+                        else -> AndroidComponentType.OTHER
+                    }
+
+                    val summary = if (composableFunctions.isNotEmpty()) {
+                        buildComposeFileSummary(psiFile, composableFunctions, componentType)
+                    } else {
+                        buildKotlinFileSummary(psiFile, classes, componentType)
+                    }
 
                     contexts.add(
                         FileContext(
@@ -217,6 +237,23 @@ class ProjectInspector(private val project: Project) {
         }
     }
 
+    private fun detectComposeInFile(psiFile: KtFile): Boolean {
+        // Check if file contains @Composable annotation
+        val fileText = psiFile.text
+        return fileText.contains("@Composable") ||
+               fileText.contains("import androidx.compose")
+    }
+
+    private fun hasComposableFunctions(psiFile: KtFile): List<KtNamedFunction> {
+        // Find all functions with @Composable annotation
+        val allFunctions = PsiTreeUtil.findChildrenOfType(psiFile, KtNamedFunction::class.java)
+        return allFunctions.filter { function ->
+            function.annotationEntries.any {
+                it.shortName?.asString() == "Composable"
+            }
+        }
+    }
+
     private fun detectAndroidComponentTypeJava(psiClass: PsiClass): AndroidComponentType {
         val className = psiClass.name ?: return AndroidComponentType.UNKNOWN
         val superClass = psiClass.superClass?.name
@@ -293,6 +330,41 @@ class ProjectInspector(private val project: Project) {
         }
     }
 
+    private fun buildComposeFileSummary(
+        psiFile: KtFile,
+        composableFunctions: List<KtNamedFunction>,
+        componentType: AndroidComponentType
+    ): String {
+        return buildString {
+            appendLine("File: ${psiFile.name}")
+            appendLine("Package: ${psiFile.packageFqName}")
+            appendLine("Type: ${componentType.name}")
+            appendLine()
+            appendLine("Jetpack Compose UI File Detected")
+            appendLine()
+
+            appendLine("Composable Functions:")
+            composableFunctions.take(15).forEach { func ->
+                val params = func.valueParameters.joinToString(", ") {
+                    "${it.name}: ${it.typeReference?.text ?: "?"}"
+                }
+                val isPreview = func.annotationEntries.any {
+                    it.shortName?.asString() == "Preview"
+                }
+                val previewMarker = if (isPreview) " [Preview]" else ""
+                appendLine("  - @Composable ${func.name}($params)$previewMarker")
+            }
+
+            appendLine()
+            appendLine("Compose Testing Requirements:")
+            appendLine("  - Use ComposeTestRule or createComposeRule()")
+            appendLine("  - Use semantics for test tags")
+            appendLine("  - Use onNodeWithTag, onNodeWithText, etc.")
+            appendLine("  - Test UI state and interactions")
+            appendLine()
+        }
+    }
+
     private fun buildJavaFileSummary(
         psiFile: PsiJavaFile,
         classes: Array<PsiClass>,
@@ -338,6 +410,8 @@ class ProjectInspector(private val project: Project) {
         val fragmentCount = contexts.count { it.content.contains("Type: FRAGMENT") }
         val viewModelCount = contexts.count { it.content.contains("Type: VIEWMODEL") }
         val repositoryCount = contexts.count { it.content.contains("Type: REPOSITORY") }
+        val composeScreenCount = contexts.count { it.content.contains("Type: COMPOSE_SCREEN") }
+        val composableCount = contexts.count { it.content.contains("Type: COMPOSABLE") }
 
         return buildString {
             appendLine("=== PROJECT STRUCTURE SUMMARY ===")
@@ -349,8 +423,14 @@ class ProjectInspector(private val project: Project) {
             appendLine("  - Fragments: $fragmentCount")
             appendLine("  - ViewModels: $viewModelCount")
             appendLine("  - Repositories: $repositoryCount")
+            if (composeScreenCount > 0 || composableCount > 0) {
+                appendLine()
+                appendLine("Jetpack Compose Components:")
+                appendLine("  - Compose Screens: $composeScreenCount")
+                appendLine("  - Composable Functions: $composableCount")
+            }
             appendLine()
-            appendLine("Architecture: ${detectArchitecture(activityCount, fragmentCount, viewModelCount, repositoryCount)}")
+            appendLine("Architecture: ${detectArchitecture(activityCount, fragmentCount, viewModelCount, repositoryCount, composeScreenCount, composableCount)}")
             appendLine()
             appendLine("Main Packages:")
             contexts.mapNotNull { it.packageName }
@@ -365,13 +445,23 @@ class ProjectInspector(private val project: Project) {
         activityCount: Int,
         fragmentCount: Int,
         viewModelCount: Int,
-        repositoryCount: Int
+        repositoryCount: Int,
+        composeScreenCount: Int,
+        composableCount: Int
     ): String {
         return when {
-            viewModelCount > 0 && repositoryCount > 0 -> "MVVM (Model-View-ViewModel)"
-            viewModelCount > 0 -> "MVVM-like"
-            activityCount > 0 || fragmentCount > 0 -> "Traditional Android"
-            else -> "Unknown"
+            (composeScreenCount > 0 || composableCount > 0) && viewModelCount > 0 && repositoryCount > 0 ->
+                "MVVM with Jetpack Compose"
+            composeScreenCount > 0 || composableCount > 0 ->
+                "Jetpack Compose UI"
+            viewModelCount > 0 && repositoryCount > 0 ->
+                "MVVM (Model-View-ViewModel)"
+            viewModelCount > 0 ->
+                "MVVM-like"
+            activityCount > 0 || fragmentCount > 0 ->
+                "Traditional Android"
+            else ->
+                "Unknown"
         }
     }
 
@@ -404,6 +494,8 @@ class ProjectInspector(private val project: Project) {
         REPOSITORY,
         USE_CASE,
         SERVICE,
+        COMPOSABLE,
+        COMPOSE_SCREEN,
         OTHER,
         UNKNOWN
     }

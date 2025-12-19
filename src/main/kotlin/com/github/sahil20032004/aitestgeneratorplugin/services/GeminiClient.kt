@@ -211,18 +211,52 @@ Return ONLY the Kotlin code without any markdown formatting or explanations.
         }
 
         return """
-You are an expert Android developer tasked with generating instrumentation tests.
+You are an expert Android developer tasked with generating Jetpack Compose instrumentation tests.
 
 Requirements:
 - Use $testFramework for test structure
-- Use AndroidX Test library (androidx.test) and Espresso for UI testing
+- Use ONLY Jetpack Compose UI testing (androidx.compose.ui.test)
+- DO NOT use Espresso - use Compose testing exclusively
 - Write tests in Kotlin
 - Use @RunWith(AndroidJUnit4::class)
-- Follow Android instrumentation test best practices
-- Test actual Android components and UI if they exist in the project
+- Follow Compose testing best practices
 - Use descriptive test method names following pattern: `should[ExpectedBehavior]When[Condition]`
 ${if (request.existingTestCode != null) "- This test file already exists. Only generate NEW test methods that don't duplicate existing ones." else ""}
 $existingMethodsInfo
+
+JETPACK COMPOSE TESTING:
+- Use ComposeTestRule (createComposeRule() or createAndroidComposeRule())
+- Use semantics for test tags: Modifier.testTag("tag_name")
+- Use Compose test finders:
+  * onNodeWithTag("tag_name")
+  * onNodeWithText("text")
+  * onNodeWithContentDescription("description")
+- Use Compose assertions:
+  * assertExists()
+  * assertIsDisplayed()
+  * assertTextEquals("text")
+  * assertIsEnabled()
+- Use Compose actions:
+  * performClick()
+  * performTextInput("text")
+  * performScrollTo()
+- For navigation testing, verify composables appear/disappear
+- Test state changes and recomposition
+- Use waitUntil for async operations
+- Example:
+  ```kotlin
+  @get:Rule
+  val composeTestRule = createComposeRule()
+  
+  @Test
+  fun testComposableUI() {
+      composeTestRule.setContent {
+          MyComposable()
+      }
+      composeTestRule.onNodeWithTag("button").performClick()
+      composeTestRule.onNodeWithText("Success").assertIsDisplayed()
+  }
+  ```
 
 $projectInfo
 
@@ -230,16 +264,16 @@ ${if (request.existingTestCode != null) {
             "Existing Test File:\n```kotlin\n${request.existingTestCode}\n```\n"
         } else ""}
 
-Based on the project structure above, generate instrumentation tests that:
-1. Test real components from the project (Activities, ViewModels, etc.)
+Based on the project structure above, generate Compose instrumentation tests that:
+1. Test Composable components from the project
 2. Include proper package declaration matching the project
-3. Import necessary AndroidX Test and Espresso libraries
+3. Import necessary Compose UI Test libraries (androidx.compose.ui.test.*)
 4. Use @RunWith(AndroidJUnit4::class) annotation
-5. Include ActivityScenario or ActivityScenarioRule if Activities are present
-6. Test UI interactions with Espresso if UI components exist
-7. Include basic smoke tests if no specific components are identified
+5. Use ComposeTestRule and semantic-based testing
+6. Test Composable functions with proper state management
+7. Include navigation and interaction tests
 
-Generate a complete instrumentation test class.
+Generate a complete Compose instrumentation test class.
 
 Return ONLY the Kotlin code without any markdown formatting or explanations.
         """.trimIndent()
@@ -261,7 +295,7 @@ Return ONLY the Kotlin code without any markdown formatting or explanations.
         val basePackage = request.projectContext.firstOrNull()?.packageName ?: "com.example.test"
 
         return """
-You are an expert Android BDD test developer tasked with generating Cucumber BDD tests.
+You are an expert Android BDD test developer tasked with generating Cucumber BDD tests using Jetpack Compose testing.
 
 Requirements:
 - Generate THREE separate files:
@@ -269,10 +303,37 @@ Requirements:
   2. A Kotlin step definitions file
   3. A Kotlin test runner class (CucumberTestRunner)
 - Use Cucumber framework for Android
+- Use ONLY Jetpack Compose UI testing (androidx.compose.ui.test)
+- DO NOT use Espresso - use Compose testing exclusively
 - Write in BDD Given-When-Then format
-- Follow Android instrumentation test best practices
-- Use AndroidX Test and Espresso where needed
-- Create realistic scenarios based on the project structure
+- Follow Compose testing best practices
+
+JETPACK COMPOSE TESTING:
+For step definitions that test Compose UI:
+- Use ComposeTestRule (declare as lateinit var and initialize in @Before)
+- Use composeTestRule.setContent { } to launch composables
+- Use semantic finders: onNodeWithTag, onNodeWithText, onNodeWithContentDescription
+- Use Compose actions: performClick(), performTextInput()
+- Use Compose assertions: assertIsDisplayed(), assertTextEquals()
+- Example step definition:
+  ```kotlin
+  @Given("I am on the login screen")
+  fun iAmOnTheLoginScreen() {
+      composeTestRule.setContent {
+          LoginScreen()
+      }
+  }
+  
+  @When("I enter email {string}")
+  fun iEnterEmail(email: String) {
+      composeTestRule.onNodeWithTag("email_field").performTextInput(email)
+  }
+  
+  @Then("I should see {string}")
+  fun iShouldSee(text: String) {
+      composeTestRule.onNodeWithText(text).assertIsDisplayed()
+  }
+  ```
 
 $projectInfo
 
@@ -300,11 +361,14 @@ Feature File Guidelines:
 Step Definitions Guidelines:
 - Package: $basePackage
 - Import necessary Cucumber annotations (@Given, @When, @Then)
-- Import AndroidX Test and Espresso
-- Implement step definitions with actual test logic
+- Import Compose UI Test (androidx.compose.ui.test.*)
+- Declare ComposeTestRule as lateinit var
+- Initialize ComposeTestRule in @Before method
+- Implement step definitions with Compose test logic
 - Use descriptive parameter names
 - Include assertions
 - Keep state in class properties
+- Use semantic testing for all UI interactions
 
 Test Runner Guidelines:
 - Package: $basePackage
@@ -330,6 +394,8 @@ import org.junit.runner.RunWith
     glue = ["$basePackage"]
 )
 class CucumberTestRunner
+```
+
 Return the content with clear separators as shown above.
 """.trimIndent()
     }
